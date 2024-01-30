@@ -23,6 +23,11 @@ from albumy.extensions import db
 from albumy.models import User
 from albumy.settings import Operations
 
+from azure.cognitiveservices.vision.computervision import ComputerVisionClient
+from msrest.authentication import CognitiveServicesCredentials
+from dotenv import load_dotenv
+import io
+
 
 def generate_token(user, operation, expire_in=None, **kwargs):
     s = Serializer(current_app.config['SECRET_KEY'], expire_in)
@@ -104,3 +109,25 @@ def flash_errors(form):
                 getattr(form, field).label.text,
                 error
             ))
+
+def create_vision_api_client():
+    azure_cognitive_key = os.environ.get("KEY")
+    azure_cognitive_endpoint = os.environ.get("ENDPOINT")
+
+    credentials = CognitiveServicesCredentials(azure_cognitive_key)
+    client = ComputerVisionClient(azure_cognitive_endpoint, credentials)
+    return client
+
+client = create_vision_api_client()
+
+def get_photo_description(image_data):
+    description_results = client.describe_image_in_stream(io.BytesIO(image_data))
+    if (len(description_results.captions) == 0):
+        description = "No description fetched."
+    else:
+        description = description_results.captions[0].text
+    return description
+
+def get_photo_tags(image_data):
+    object_results = client.tag_image_in_stream(io.BytesIO(image_data))
+    return object_results.tags

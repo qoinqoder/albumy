@@ -17,15 +17,9 @@ from albumy.extensions import db
 from albumy.forms.main import DescriptionForm, TagForm, CommentForm
 from albumy.models import User, Photo, Tag, Follow, Collect, Comment, Notification
 from albumy.notifications import push_comment_notification, push_collect_notification
-from albumy.utils import rename_image, resize_image, redirect_back, flash_errors
-
-from azure.cognitiveservices.vision.computervision import ComputerVisionClient
-from msrest.authentication import CognitiveServicesCredentials
-from dotenv import load_dotenv
-import io
+from albumy.utils import rename_image, resize_image, redirect_back, flash_errors, get_photo_description, get_photo_tags
 
 main_bp = Blueprint('main', __name__)
-
 
 @main_bp.route('/')
 def index():
@@ -119,41 +113,6 @@ def get_avatar(filename):
     return send_from_directory(current_app.config['AVATARS_SAVE_PATH'], filename)
 
 
-def get_photo_description(image_data):
-
-    azure_cognitive_key = "d99ce807789f4204abceb0e148adbbd4" #os.environ.get("KEY")
-    azure_cognitive_endpoint = "https://imageanalyzerapi.cognitiveservices.azure.com/" #os.environ.get("ENDPOINT")
-
-    credentials = CognitiveServicesCredentials(azure_cognitive_key)
-    client = ComputerVisionClient(azure_cognitive_endpoint, credentials)
-    description_results = client.describe_image_in_stream(io.BytesIO(image_data))
-
-    if (len(description_results.captions) == 0):
-        description = "No description fetched."
-    else:
-        description = description_results.captions[0].text
-        print(description)
-    return description
-
-def get_photo_tags(image_data):
-
-    azure_cognitive_key = "d99ce807789f4204abceb0e148adbbd4" #os.environ.get("KEY")
-    azure_cognitive_endpoint = "https://imageanalyzerapi.cognitiveservices.azure.com/" #os.environ.get("ENDPOINT")
-
-    credentials = CognitiveServicesCredentials(azure_cognitive_key)
-    client = ComputerVisionClient(azure_cognitive_endpoint, credentials)
-    object_results = client.tag_image_in_stream(io.BytesIO(image_data))
-
-    # for tag_result in object_results.tags:
-    #     print(f"Object: {tag.name}")
-    #     tag = Tag.query.filter_by(name=tag_result.name).first()
-    #     if tag is None:
-    #         tag = Tag(name=tag_result.name)
-    #         db.session.add(tag)
-    #         db.session.commit()
-    return object_results.tags
-
-
 @main_bp.route('/upload', methods=['GET', 'POST'])
 @login_required
 @confirm_required
@@ -170,14 +129,11 @@ def upload():
         photo_tags = []
 
         for tag_result in tag_results:
-            print(f"Object: {tag_result.name}")
             tag = Tag.query.filter_by(name=tag_result.name).first()
-            print("adding tag to db")
             if tag is None:
                 tag = Tag(name=tag_result.name)
                 db.session.add(tag)
                 db.session.commit()
-                print("added to db")
             photo_tags.append(tag)
         
         photo = Photo(
