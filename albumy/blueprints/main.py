@@ -19,6 +19,11 @@ from albumy.models import User, Photo, Tag, Follow, Collect, Comment, Notificati
 from albumy.notifications import push_comment_notification, push_collect_notification
 from albumy.utils import rename_image, resize_image, redirect_back, flash_errors
 
+from azure.cognitiveservices.vision.computervision import ComputerVisionClient
+from msrest.authentication import CognitiveServicesCredentials
+from dotenv import load_dotenv
+import io
+
 main_bp = Blueprint('main', __name__)
 
 
@@ -114,6 +119,41 @@ def get_avatar(filename):
     return send_from_directory(current_app.config['AVATARS_SAVE_PATH'], filename)
 
 
+def get_photo_description(image_data):
+
+    azure_cognitive_key = "d99ce807789f4204abceb0e148adbbd4" #os.environ.get("KEY")
+    azure_cognitive_endpoint = "https://imageanalyzerapi.cognitiveservices.azure.com/" #os.environ.get("ENDPOINT")
+
+    credentials = CognitiveServicesCredentials(azure_cognitive_key)
+    client = ComputerVisionClient(azure_cognitive_endpoint, credentials)
+    description_results = client.describe_image_in_stream(io.BytesIO(image_data))
+
+    if (len(description_results.captions) == 0):
+        description = "No description fetched."
+    else:
+        description = description_results.captions[0].text
+        print(description)
+    return description
+
+def get_photo_tags(image_data):
+
+    azure_cognitive_key = "d99ce807789f4204abceb0e148adbbd4" #os.environ.get("KEY")
+    azure_cognitive_endpoint = "https://imageanalyzerapi.cognitiveservices.azure.com/" #os.environ.get("ENDPOINT")
+
+    credentials = CognitiveServicesCredentials(azure_cognitive_key)
+    client = ComputerVisionClient(azure_cognitive_endpoint, credentials)
+    object_results = client.tag_image_in_stream(io.BytesIO(image_data))
+
+    # for tag_result in object_results.tags:
+    #     print(f"Object: {tag.name}")
+    #     tag = Tag.query.filter_by(name=tag_result.name).first()
+    #     if tag is None:
+    #         tag = Tag(name=tag_result.name)
+    #         db.session.add(tag)
+    #         db.session.commit()
+    return object_results.tags
+
+
 @main_bp.route('/upload', methods=['GET', 'POST'])
 @login_required
 @confirm_required
@@ -121,20 +161,36 @@ def get_avatar(filename):
 def upload():
     if request.method == 'POST' and 'file' in request.files:
         f = request.files.get('file')
+        image_data = f.read()
         filename = rename_image(f.filename)
         f.save(os.path.join(current_app.config['ALBUMY_UPLOAD_PATH'], filename))
         filename_s = resize_image(f, filename, current_app.config['ALBUMY_PHOTO_SIZE']['small'])
         filename_m = resize_image(f, filename, current_app.config['ALBUMY_PHOTO_SIZE']['medium'])
+        tag_results = get_photo_tags(image_data)
+        photo_tags = []
+
+        for tag_result in tag_results:
+            print(f"Object: {tag_result.name}")
+            tag = Tag.query.filter_by(name=tag_result.name).first()
+            print("adding tag to db")
+            if tag is None:
+                tag = Tag(name=tag_result.name)
+                db.session.add(tag)
+                db.session.commit()
+                print("added to db")
+            photo_tags.append(tag)
+        
         photo = Photo(
             filename=filename,
             filename_s=filename_s,
             filename_m=filename_m,
-            author=current_user._get_current_object()
+            author=current_user._get_current_object(),
+            description=get_photo_description(image_data),
+            tags = photo_tags
         )
         db.session.add(photo)
         db.session.commit()
     return render_template('main/upload.html')
-
 
 @main_bp.route('/photo/<int:photo_id>')
 def show_photo(photo_id):
